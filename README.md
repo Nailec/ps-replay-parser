@@ -7,9 +7,9 @@ This programs takes the following parameters :
  * format # the format of the battles (useful to filter out a gen in a pl for example)
  * output_type # if replays, list the replays found matching the request. If teams returns a csv of the teams with the format below
 
-examples on how to run the program : 
-go run *.go url https://www.smogon.com/forums/threads/zupl-replays.3653635/\#post-8237446 gen7zu teams
+examples on how to run the program : <br>
+go run *.go url https://www.smogon.com/forums/threads/zupl-replays.3653635/\#post-8237446 gen7zu teams <br>
 go run *.go file ~/Bureau/lcuu_replays gen7lcuu teams > ~/Bureau/lcuu_teams2
 
-teams output format :
+teams output format : <br>
 player_name;pokemon1;pokemon2;pokemon3;pokemon4;pokemon5;pokemon6;result # result is W or L
