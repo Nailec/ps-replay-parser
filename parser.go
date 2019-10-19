@@ -207,7 +207,7 @@ func ParsePokemonsFromHtml(html string) (map[string]*Team, error) {
 			Pokemons: map[string]*Pokemon{},
 		},
 		"p2": &Team{
-			Result:   "W",
+			Result:   "L",
 			Pokemons: map[string]*Pokemon{},
 		},
 	} // The teams to be returned
