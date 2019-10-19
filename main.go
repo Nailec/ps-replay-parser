@@ -57,8 +57,31 @@ func main() {
 		}
 
 		for _, team := range res {
-			sort.Strings(team.Pokemons)
-			fmt.Println(team.Player + ";" + strings.Join(team.Pokemons, ";") + ";" + team.Result)
+			displayTeam(team)
 		}
 	}
+}
+
+func displayTeam(team *Team) {
+	pokes := make([]string, len(team.Pokemons))
+	i := 0
+	for _, poke := range team.Pokemons {
+		pokes[i] = poke.Name
+		i++
+	}
+
+	sort.Strings(pokes)
+	output := team.Player + ";"
+	output += team.Pokemons[team.Lead].Name + ";"
+	//output += team.Lead + ";"
+	for _, poke := range pokes {
+		for _, p := range team.Pokemons {
+			if poke == p.Name {
+				output += poke + ";"
+				output += strings.Join(p.Moves, ";") + ";"
+			}
+		}
+	}
+	output += team.Result
+	fmt.Println(output)
 }
