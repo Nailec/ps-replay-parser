@@ -10,35 +10,20 @@ import (
 
 func main() {
 	args := os.Args
-	if len(args) != 5 {
-		fmt.Println("go run main.go file/url filename/urladdress format stats/teams")
+	if len(args) != 4 {
+		fmt.Println("go run main.go filename format stats/teams")
 		return
 	}
 
-	format := args[3]
+	format := args[2]
 
-	var urls []string
-	var err error
-
-	switch args[1] {
-	case "url":
-		urls, err = GetURLsFromForumsPage(args[2], format)
-		if err != nil {
-			fmt.Println(err)
-			return
-		}
-	case "file":
-		urls, err = GetURLsFromFile(args[2], format)
-		if err != nil {
-			fmt.Println(err)
-			return
-		}
-	default:
-		fmt.Println("go run main.go file/url filename/urladdress")
+	urls, err := GetURLsFromFile(args[1], format)
+	if err != nil {
+		fmt.Println(err)
 		return
 	}
 
-	switch args[4] {
+	switch args[3] {
 	case "stats":
 		res, err := GetStats(urls)
 		if err != nil {
@@ -63,6 +48,10 @@ func main() {
 }
 
 func displayTeam(team *Team) {
+	if team == nil || team.Lead == "" {
+		return
+	}
+
 	pokes := make([]string, len(team.Pokemons))
 	i := 0
 	for _, poke := range team.Pokemons {
@@ -78,6 +67,7 @@ func displayTeam(team *Team) {
 		for _, p := range team.Pokemons {
 			if poke == p.Name {
 				output += poke + ";"
+				output += p.Item + ";"
 				output += strings.Join(p.Moves, ";") + ";"
 			}
 		}

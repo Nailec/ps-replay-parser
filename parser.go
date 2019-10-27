@@ -4,14 +4,25 @@ import (
 	"encoding/json"
 	"fmt"
 	"io/ioutil"
-	"log"
 	"net/http"
 	"regexp"
 	"strings"
 
-	"github.com/PuerkitoBio/goquery"
 	"github.com/pkg/errors"
 )
+
+type Team struct {
+	Pokemons map[string]*Pokemon // Key is Nickname
+	Lead     string
+	Result   string
+	Player   string
+}
+
+type Pokemon struct {
+	Name  string
+	Moves []string
+	Item  string
+}
 
 func GetURLsFromFile(file, format string) ([]string, error) {
 	b, err := ioutil.ReadFile(file)
@@ -39,49 +50,6 @@ func GetURLsFromFile(file, format string) ([]string, error) {
 	}
 
 	return urls[:i], nil
-}
-
-func GetURLsFromForumsPage(url, format string) ([]string, error) {
-	resp, err := http.Get(url)
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-
-	doc, err := goquery.NewDocumentFromReader(resp.Body)
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	sel := doc.Find("a")
-	urls := make([]string, sel.Length())
-	j := 0
-	sel.Each(func(_ int, s *goquery.Selection) {
-		ref, _ := s.Attr("href")
-		if strings.HasPrefix(ref, "replay") {
-			ref = strings.Replace(ref, "replay", "https://replay", 1)
-		}
-		ref = strings.Replace(ref, "http://", "https://", 1)
-		if strings.HasPrefix(ref, "https://replay.pokemonshowdown.com/"+format) ||
-			strings.HasPrefix(ref, "https://replay.pokemonshowdown.com/smogtours-"+format) {
-			urls[j] = ref
-			j++
-		}
-	})
-
-	return urls[:j], nil
-}
-
-type Team struct {
-	Pokemons map[string]*Pokemon // Key is Nickname
-	Lead     string
-	Result   string
-	Player   string
-}
-
-type Pokemon struct {
-	Name  string
-	Moves []string
 }
 
 func GetTeams(urls []string) ([]*Team, error) {
@@ -177,6 +145,12 @@ func GetType(team map[string]*Pokemon) (string, error) {
 }
 
 func ParsePokemonsFromURL(url string) (map[string]*Team, error) {
+	defer func() {
+		if r := recover(); r != nil {
+			fmt.Println(url)
+		}
+	}()
+
 	resp, err := http.Get(url)
 	if err != nil {
 		return nil, err
@@ -229,16 +203,22 @@ func ParsePokemonsFromHtml(html string) (map[string]*Team, error) {
 			split := strings.Split(line, "|")
 			p := split[2]
 			poke := strings.Split(split[3], ",")[0]
+			poke = cutName(poke)
 
 			if poke == "Greninja" {
 				nn := GetNickname(html, p, poke)
 				if checkAshGreninja(html, p, nn) {
-					poke = "Greninja-Ash"
+					teams[p].Pokemons[poke] = &Pokemon{
+						Name:  "Greninja-Ash",
+						Moves: make([]string, 4),
+					}
+					continue
 				}
 			}
+
 			// Pokemon is initialized with its base name as nickname
 			teams[p].Pokemons[poke] = &Pokemon{
-				Name:  cutName(poke),
+				Name:  poke,
 				Moves: make([]string, 4),
 			}
 			continue
@@ -246,7 +226,6 @@ func ParsePokemonsFromHtml(html string) (map[string]*Team, error) {
 
 		// Init leads
 		if strings.HasPrefix(line, "|start") {
-			// TODO fix for silvally and -*
 			pID, pokeNick, pokeName := getPoke(lines[i+1])
 			pokeName = cutName(pokeName)
 			teams[pID].Lead = pokeNick
@@ -267,6 +246,17 @@ func ParsePokemonsFromHtml(html string) (map[string]*Team, error) {
 			continue
 		}
 
+		if strings.Contains(line, "[from] item: ") {
+			pID, pokeNick, item := getItem(line)
+			teams[pID].Pokemons[pokeNick].Item = item
+		}
+
+		if strings.HasPrefix(line, "|-enditem") {
+			pID, pokeNick, item := getItemFromEndItem(line)
+			teams[pID].Pokemons[pokeNick].Item = item
+			continue
+		}
+
 		// Handle end of battle result
 		if strings.HasPrefix(line, "|win") {
 			split := strings.Split(line, "|")
@@ -275,7 +265,7 @@ func ParsePokemonsFromHtml(html string) (map[string]*Team, error) {
 		}
 
 		// Update nickname and details on forms (silvally, pumpkaboo, ...)
-		if strings.HasPrefix(line, "|switch") {
+		if strings.HasPrefix(line, "|switch") || strings.HasPrefix(line, "|drag") {
 			pID, pokeNick, pokeName := getPoke(line)
 			if _, ok := teams[pID].Pokemons[pokeNick]; ok {
 				continue // already checked ^^
@@ -295,8 +285,69 @@ func ParsePokemonsFromHtml(html string) (map[string]*Team, error) {
 			continue
 		}
 
-		// TODO get moves
-		// TODO get items
+		// |move|p1a: Liepard|Taunt||[from]Copycat|[still]
+		if strings.HasPrefix(line, "|move") {
+			if strings.Contains(line, "[zeffect]") {
+				continue
+			}
+			if strings.Contains(line, "[from]Magic Bounce") {
+				continue
+			}
+			if strings.Contains(line, "[from]Metronome") {
+				continue
+			}
+			if strings.Contains(line, "[from]Assist") {
+				continue
+			}
+			if strings.Contains(line, "[from]Snatch") {
+				continue
+			}
+			if strings.Contains(line, "[from]Magic Coat") {
+				continue
+			}
+			if strings.Contains(line, "[from]Nature Power") {
+				continue
+			}
+			if strings.Contains(line, "[from]Me First") {
+				continue
+			}
+			if strings.Contains(line, "[from]Copycat") {
+				continue
+			}
+
+			pID, pokeNick, move := getMoveInfo(line)
+			if strings.HasPrefix(move, "Z-") {
+				move = strings.TrimPrefix(move, "Z-")
+			}
+			if move == "Struggle" {
+				continue
+			}
+			if teams[pID].Pokemons[pokeNick].Name == "Ditto" {
+				continue
+			}
+			addMove(teams[pID].Pokemons[pokeNick].Moves, move)
+			continue
+		}
+
+		// |cant|p2a: Clefable|move: Taunt|Stealth Rock
+		if strings.HasPrefix(line, "|cant") {
+			pID, pokeNick, move := getCantMoveInfo(line)
+			if pID == "" {
+				continue
+			}
+			if teams[pID].Pokemons[pokeNick].Name == "Ditto" {
+				continue
+			}
+			addMove(teams[pID].Pokemons[pokeNick].Moves, move)
+			continue
+		}
+
+		if strings.HasPrefix(line, "|-zpower") {
+			pID, pokeNick, move := getMoveInfo(lines[i+1])
+			i++
+			teams[pID].Pokemons[pokeNick].Item = move
+			continue
+		}
 	}
 
 	return teams, nil
@@ -314,7 +365,7 @@ func GetNickname(html, player, poke string) string {
 }
 
 func checkAshGreninja(html, player, nn string) bool {
-	protean := regexp.MustCompile(`\|-start\|` + player + `a: ` + nn + `\|typechange\|([^\|]*)\|\[from\] Protean`)
+	protean := regexp.MustCompile(`\|-start\|` + player + `a: ` + nn + `\|typechange\|([^\|]*)\|\[from\] (ability: )?Protean`)
 
 	usedMove := regexp.MustCompile(`\|move\|` + player + `a: ` + nn + `\|([^\|]*)\|`)
 
@@ -323,10 +374,50 @@ func checkAshGreninja(html, player, nn string) bool {
 
 // returns player, nickname and name
 func getPoke(line string) (string, string, string) {
-	expected := regexp.MustCompile(`\|switch\|(p(1|2))a: ([^\|]*)\|([^,|]*)`)
+	expected := regexp.MustCompile(`\|(switch|drag)\|(p(1|2))a: ([^\|]*)\|([^,|]*)`)
+
+	res := expected.FindStringSubmatch(line)
+	return res[2], res[4], res[5]
+}
+
+// returns player, nickname and item
+func getItemFromEndItem(line string) (string, string, string) {
+	expected := regexp.MustCompile(`\|-enditem\|(p(1|2))a: ([^\|]*)\|([^\|]*)(.*)$`)
 
 	res := expected.FindStringSubmatch(line)
 	return res[1], res[3], res[4]
+}
+
+// returns player, nickname and item
+func getItem(line string) (string, string, string) {
+	expected := regexp.MustCompile(`\|-(damage|heal|status)\|(p(1|2))a: ([^\|]*)\|([^\[]*)\[from\] item: ([^|]*)(\|\[of\] (p(1|2))a: ([^|]*))?$`)
+
+	res := expected.FindStringSubmatch(line)
+	if res[10] != "" {
+		return res[8], res[10], res[6]
+	}
+
+	return res[2], res[4], res[6]
+}
+
+// returns player, nickname and move
+func getMoveInfo(line string) (string, string, string) {
+	expected := regexp.MustCompile(`\|move\|(p(1|2))a: ([^\|]*)\|([^,|]*)`)
+
+	res := expected.FindStringSubmatch(line)
+	return res[1], res[3], res[4]
+}
+
+// |cant|p2a: Clefable|move: Taunt|Stealth Rock
+// returns player, move and name
+func getCantMoveInfo(line string) (string, string, string) {
+	expected := regexp.MustCompile(`\|cant\|(p(1|2))a: ([^\|]*)\|move: ([^,|]*)\|([^\|]*)$`)
+
+	res := expected.FindStringSubmatch(line)
+	if len(res) == 0 {
+		return "", "", ""
+	}
+	return res[1], res[3], res[5]
 }
 
 // returns player, nickname and new form name
@@ -334,6 +425,15 @@ func getDetailschange(line string) (string, string, string) {
 	expected := regexp.MustCompile(`\|detailschange\|(p(1|2))a: ([^\|]*)\|([^,|]*)`)
 
 	res := expected.FindStringSubmatch(line)
+
+	if strings.HasPrefix(res[4], "Mimikyu") {
+		res[4] = "Mimikyu"
+	}
+
+	if strings.HasPrefix(res[4], "Minior") {
+		res[4] = "Minior"
+	}
+
 	return res[1], res[3], res[4]
 }
 
@@ -345,7 +445,8 @@ func updatePlayerPoke(pokes map[string]*Pokemon, nick, newName string) {
 		}
 
 		matched = true
-		if nick == oldName {
+		// we already have it in current or another form
+		if nick == oldName || nick == newName {
 			break
 		}
 		poke.Name = newName
@@ -369,6 +470,14 @@ func namesMatch(a, b string) bool {
 }
 
 func cutName(name string) string {
+	if strings.HasPrefix(name, "Mimikyu") {
+		return "Mimikyu"
+	}
+
+	if strings.HasPrefix(name, "Minior") {
+		return "Minior"
+	}
+
 	if strings.HasPrefix(name, "Pumpkaboo") {
 		return "Pumpkaboo"
 	}
@@ -430,4 +539,17 @@ func cutName(name string) string {
 	}
 
 	return name
+}
+
+func addMove(a []string, s string) {
+	for i, v := range a {
+		if s == v {
+			return
+		}
+		if v == "" {
+			a[i] = s
+			return
+		}
+	}
+	fmt.Println("cannot add: " + s + " to: " + strings.Join(a, ","))
 }
