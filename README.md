@@ -10,4 +10,4 @@ examples on how to run the program : <br>
 go run *.go ~/lcuu_replays gen7lcuu teams
 
 teams output format : <br>
-`player_name;lead;pokemon1;item;move1;move2;move3;move4;pokemon2;(...);pokemon6;item;move1;move2;move3;move4;result` # result is W or L
+`player_name;team_type;lead;dynamaxed_pokemon;dynamax_turn;pokemon1;item;move1;move2;move3;move4;pokemon2;(...);pokemon6;item;move1;move2;move3;move4;result` # result is W or L

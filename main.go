@@ -2,7 +2,9 @@ package main
 
 import (
 	"fmt"
+	"io/ioutil"
 	"os"
+	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
@@ -17,15 +19,37 @@ func main() {
 
 	format := args[2]
 
-	urls, err := GetURLsFromFile(args[1], format)
+	fileInfo, err := os.Stat(args[1])
 	if err != nil {
 		fmt.Println(err)
 		return
 	}
 
+	isLogs := fileInfo.IsDir()
+
+	var paths []string
+	if isLogs {
+		files, err := ioutil.ReadDir(args[1])
+		if err != nil {
+			fmt.Println(err)
+			return
+		}
+
+		paths = make([]string, len(files))
+		for i, file := range files {
+			paths[i] = filepath.Join(args[1], file.Name())
+		}
+	} else {
+		paths, err = GetURLsFromFile(args[1], format)
+		if err != nil {
+			fmt.Println(err)
+			return
+		}
+	}
+
 	switch args[3] {
 	case "stats":
-		res, err := GetStats(urls)
+		res, err := GetStats(paths, isLogs)
 		if err != nil {
 			fmt.Println(err)
 			return
@@ -35,7 +59,7 @@ func main() {
 			fmt.Printf(name + "\t" + strconv.Itoa(val) + "\n")
 		}
 	case "teams":
-		res, err := GetTeams(urls)
+		res, err := GetTeams(paths, format, isLogs)
 		if err != nil {
 			fmt.Println(err)
 			return
@@ -59,9 +83,16 @@ func displayTeam(team *Team) {
 		i++
 	}
 
+	dynamon := team.DynamaxPokemon
+	if _, ok := team.Pokemons[team.DynamaxPokemon]; ok {
+		dynamon = team.Pokemons[team.DynamaxPokemon].Name
+	}
 	sort.Strings(pokes)
 	output := team.Player + ";"
+	output += team.Type + ";"
 	output += team.Pokemons[team.Lead].Name + ";"
+	output += dynamon + ";"
+	output += strconv.Itoa(team.DynamaxTurn) + ";"
 	//output += team.Lead + ";"
 	for _, poke := range pokes {
 		for _, p := range team.Pokemons {

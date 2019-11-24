@@ -12,10 +12,13 @@ import (
 )
 
 type Team struct {
-	Pokemons map[string]*Pokemon // Key is Nickname
-	Lead     string
-	Result   string
-	Player   string
+	Pokemons       map[string]*Pokemon // Key is Nickname
+	Lead           string
+	Result         string
+	Player         string
+	Type           string
+	DynamaxPokemon string
+	DynamaxTurn    int
 }
 
 type Pokemon struct {
@@ -52,33 +55,55 @@ func GetURLsFromFile(file, format string) ([]string, error) {
 	return urls[:i], nil
 }
 
-func GetTeams(urls []string) ([]*Team, error) {
-	allTeams := make([]*Team, 2*len(urls))
+func GetTeams(paths []string, format string, isLogs bool) ([]*Team, error) {
+	allTeams := make([]*Team, 2*len(paths))
 	teams := make(map[string]*Team, 2)
 	i := 0
 	var err error
-	for _, url := range urls {
-		teams, err = ParsePokemonsFromURL(url)
+	var errs []error
+	for _, path := range paths {
+		if isLogs {
+			teams, err = ParsePokemonsFromFile(path)
+		} else {
+			teams, err = ParsePokemonsFromURL(path)
+		}
 		if err != nil {
 			return nil, err
 		}
 
 		for _, team := range teams {
+			if strings.Contains(format, "monotype") {
+				team.Type, err = GetType(team.Pokemons)
+				if err != nil {
+					errs = append(errs, err)
+				}
+			}
 			allTeams[i] = team
 			i++
 		}
 	}
 
+	if len(errs) != 0 {
+		for _, err := range errs {
+			fmt.Println(err)
+		}
+		return nil, errors.New("errors occured when trying to find team types")
+	}
+
 	return allTeams, nil
 }
 
-func GetStats(urls []string) (map[string]int, error) {
+func GetStats(paths []string, isLogs bool) (map[string]int, error) {
 	stats := map[string]int{}
 	teams := make(map[string]*Team, 2)
 	var err error
 	var teamType string
-	for _, url := range urls {
-		teams, err = ParsePokemonsFromURL(url)
+	for _, path := range paths {
+		if isLogs {
+			teams, err = ParsePokemonsFromFile(path)
+		} else {
+			teams, err = ParsePokemonsFromURL(path)
+		}
 		if err != nil {
 			return nil, err
 		}
@@ -109,7 +134,11 @@ func GetType(team map[string]*Pokemon) (string, error) {
 		"psychic", "rock", "steel", "water",
 	}
 
+	var names []string
 	for _, t := range types {
+		names = make([]string, 6)
+		i := 0
+
 		b, err := ioutil.ReadFile("pokelist/" + t + ".json")
 		if err != nil {
 			return "", errors.Wrap(err, "could not read type file: "+t)
@@ -123,6 +152,11 @@ func GetType(team map[string]*Pokemon) (string, error) {
 
 		typeMatch := true
 		for _, p := range team {
+			names[i] = p.Name
+			i++
+			if strings.HasPrefix(p.Name, "Silvally-") {
+				continue
+			}
 			found := false
 			for _, p2 := range list.Data {
 				if p.Name == p2 {
@@ -141,7 +175,22 @@ func GetType(team map[string]*Pokemon) (string, error) {
 		}
 	}
 
-	return "Unknown", fmt.Errorf("no type found for team: %+v", team)
+	return "Unknown", fmt.Errorf("no type found for team: %+v", names)
+}
+
+func ParsePokemonsFromFile(file string) (map[string]*Team, error) {
+	defer func() {
+		if r := recover(); r != nil {
+			fmt.Println(file)
+		}
+	}()
+
+	b, err := ioutil.ReadFile(file)
+	if err != nil {
+		return nil, err
+	}
+
+	return ParsePokemonsFromHtml(string(b))
 }
 
 func ParsePokemonsFromURL(url string) (map[string]*Team, error) {
@@ -187,9 +236,16 @@ func ParsePokemonsFromHtml(html string) (map[string]*Team, error) {
 	} // The teams to be returned
 
 	playerIDs := map[string]string{} // Stores a player ID by name
+	turn := 0
 
 	lines := strings.Split(html, "\n")
 	for i, line := range lines {
+		// Init turn
+		if strings.HasPrefix(line, "|turn|") {
+			turn++
+			continue
+		}
+
 		// Init players
 		if strings.HasPrefix(line, "|player|") {
 			split := strings.Split(line, "|")
@@ -226,6 +282,13 @@ func ParsePokemonsFromHtml(html string) (map[string]*Team, error) {
 
 		// Init leads
 		if strings.HasPrefix(line, "|start") {
+			if strings.HasSuffix(line, "Dynamax") {
+				pID, pokeNick := getDynamaxInfo(line)
+				teams[pID].DynamaxPokemon = pokeNick
+				teams[pID].DynamaxTurn = turn
+				continue
+			}
+
 			pID, pokeNick, pokeName := getPoke(lines[i+1])
 			pokeName = cutName(pokeName)
 			teams[pID].Lead = pokeNick
@@ -243,6 +306,14 @@ func ParsePokemonsFromHtml(html string) (map[string]*Team, error) {
 			}
 
 			i += 2
+			continue
+		}
+
+		// Dynamax
+		if strings.HasPrefix(line, "|-start") && strings.HasSuffix(line, "Dynamax") {
+			pID, pokeNick := getDynamaxInfo(line)
+			teams[pID].DynamaxPokemon = pokeNick
+			teams[pID].DynamaxTurn = turn
 			continue
 		}
 
@@ -320,6 +391,9 @@ func ParsePokemonsFromHtml(html string) (map[string]*Team, error) {
 				move = strings.TrimPrefix(move, "Z-")
 			}
 			if move == "Struggle" {
+				continue
+			}
+			if strings.HasPrefix(move, "Max ") || strings.HasPrefix(move, "G-Max ") {
 				continue
 			}
 			if teams[pID].Pokemons[pokeNick].Name == "Ditto" {
@@ -408,6 +482,14 @@ func getMoveInfo(line string) (string, string, string) {
 	return res[1], res[3], res[4]
 }
 
+// returns player, nickname
+func getDynamaxInfo(line string) (string, string) {
+	expected := regexp.MustCompile(`\|-start\|(p(1|2))a: ([^\|]*)\|Dynamax`)
+
+	res := expected.FindStringSubmatch(line)
+	return res[1], res[3]
+}
+
 // |cant|p2a: Clefable|move: Taunt|Stealth Rock
 // returns player, move and name
 func getCantMoveInfo(line string) (string, string, string) {
@@ -428,6 +510,14 @@ func getDetailschange(line string) (string, string, string) {
 
 	if strings.HasPrefix(res[4], "Mimikyu") {
 		res[4] = "Mimikyu"
+	}
+
+	if strings.HasPrefix(res[4], "Toxtricity") {
+		res[4] = "Toxtricity"
+	}
+
+	if strings.HasPrefix(res[4], "Eiscue") {
+		res[4] = "Eiscue"
 	}
 
 	if strings.HasPrefix(res[4], "Minior") {
@@ -484,6 +574,14 @@ func cutName(name string) string {
 
 	if strings.HasPrefix(name, "Gourgeist") {
 		return "Gourgeist"
+	}
+
+	if strings.HasPrefix(name, "Toxtricity") {
+		return "Toxtricity"
+	}
+
+	if strings.HasPrefix(name, "Eiscue") {
+		return "Eiscue"
 	}
 
 	if strings.HasPrefix(name, "Sawsbuck") {
