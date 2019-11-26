@@ -87,10 +87,17 @@ func displayTeam(team *Team) {
 	if _, ok := team.Pokemons[team.DynamaxPokemon]; ok {
 		dynamon = team.Pokemons[team.DynamaxPokemon].Name
 	}
+
+	leadmon := team.Lead
+	if _, ok := team.Pokemons[team.Lead]; ok {
+		leadmon = team.Pokemons[team.Lead].Name
+	}
+
 	sort.Strings(pokes)
 	output := team.Player + ";"
 	output += team.Type + ";"
-	output += team.Pokemons[team.Lead].Name + ";"
+	output += leadmon + ";"
+	output += strconv.Itoa(team.BattleLength) + ";"
 	output += dynamon + ";"
 	output += strconv.Itoa(team.DynamaxTurn) + ";"
 	//output += team.Lead + ";"

@@ -19,6 +19,7 @@ type Team struct {
 	Type           string
 	DynamaxPokemon string
 	DynamaxTurn    int
+	BattleLength   int
 }
 
 type Pokemon struct {
@@ -332,6 +333,9 @@ func ParsePokemonsFromHtml(html string) (map[string]*Team, error) {
 		if strings.HasPrefix(line, "|win") {
 			split := strings.Split(line, "|")
 			teams[playerIDs[split[2]]].Result = "W"
+			for _, team := range teams {
+				team.BattleLength = turn
+			}
 			break // nothing is interesting after we know who won
 		}
 
